@@ -1,4 +1,4 @@
-work_dir: ./work_dir/ntu60-xsub-ctrgcn_joint
+work_dir: ./work_dir/ntu60-xsub-sdtgcn
 
 # feeder
 feeder: feeders.feeder_ntu.Feeder
@@ -26,7 +26,7 @@ test_feeder_args:
   debug: False
 
 # model
-model: model.ctrgcn.Model
+model: model.sdtgcn.Model
 model_args:
   num_class: 60
   num_point: 25
