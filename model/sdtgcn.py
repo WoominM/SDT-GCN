@@ -204,9 +204,9 @@ class MultiScale_TemporalConv(nn.Module):
         return out
 
 
-class CTRGC(nn.Module):
+class SGC(nn.Module):
     def __init__(self, in_channels, out_channels, rel_reduction=8, mid_reduction=1):
-        super(CTRGC, self).__init__()
+        super(SGC, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         if in_channels == 3 or in_channels == 9:
@@ -262,7 +262,7 @@ class unit_gcn(nn.Module):
         self.num_subset = A.shape[0]
         self.convs = nn.ModuleList()
         for i in range(self.num_subset):
-            self.convs.append(CTRGC(in_channels, out_channels))
+            self.convs.append(SGC(in_channels, out_channels))
         self.num_group = 4 if in_channels != 3 else 1
         if residual:
             if in_channels != out_channels:
@@ -328,11 +328,9 @@ class TCN_GCN_unit(nn.Module):
         x = self.relu(x + self.residual(res))
         return x
     
-class TCN_GCN_model(nn.Sequential):
-    def __init__(self, block_args, A, parts=None, part=None, local=False, reduct=1, wst=1, num_heads=1, v=25):
-        super(TCN_GCN_model, self).__init__()
-        if part is not None:
-            A = A[:, part][:, :, part]
+class SDTGCN(nn.Sequential):
+    def __init__(self, block_args, A):
+        super(SDTGCN, self).__init__()
         for i, [in_channels, out_channels, stride, residual, adaptive, num_frame] in enumerate(block_args):
             self.add_module(f'block-{i}_tcngcn', TCN_GCN_unit(in_channels, out_channels, A, stride=stride, residual=residual, adaptive=adaptive, num_frame=num_frame))  
 
@@ -369,7 +367,7 @@ class Model(nn.Module):
         ]
         
         self.num_layer = 3
-        self.layer = nn.ModuleList([TCN_GCN_model(self.blockargs, A) for _ in range(self.num_layer)])
+        self.layer = nn.ModuleList([SDTGCN(self.blockargs, A) for _ in range(self.num_layer)])
         self.fc = nn.ModuleList([nn.Linear(base_channel*4, num_class) for _ in range(self.num_layer)])
         
         for fc in self.fc:
