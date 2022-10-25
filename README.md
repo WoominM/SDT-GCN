@@ -5,8 +5,10 @@ This repo is the official implementation for . The paper is accepted to .
 
 - Python >= 3.6
 - PyTorch >= 1.1.0
-- PyYAML, tqdm, tensorboardX
+- PyYAML, tqdm, tensorboardX, h5py, sklearn, matplotlib, thop
+- Run `pip install -e torchpack`
 - Run `pip install -e torchlight` 
+- Run `conda install -c conda-forge onnx`
 
 # Data Preparation
 
@@ -70,7 +72,7 @@ python main.py --config config/nturgbd120-cross-subject/default.yaml --work-dir 
 
 ```
 # Example: training SDT-GCN on NTU RGB+D 120 cross subject under bone modality
-python main.py --config config/nturgbd120-cross-subject/default.yaml --train_feeder_args bone=True --test_feeder_args bone=True --work-dir work_dir/ntu120/csub/ctrgcn_bone --device 0
+python main.py --config config/nturgbd120-cross-subject/default.yaml --train-feeder-args bone=True --test-feeder-args bone=True --work-dir work_dir/ntu120/csub/ctrgcn_bone --device 0
 ```
 
 - To train your own model, put model file `your_model.py` under `./model` and run:
@@ -109,7 +111,7 @@ Thanks to the original authors for their work!
 
 Please cite this work if you find it useful:.
 
-      @inproceedings{chen2021channel,
+      @inproceedings{,
         title={},
         author={},
         booktitle={},
