@@ -1,4 +1,4 @@
-# SDT-GCN
+# TSA-GCN
 This repo is the official implementation for . The paper is accepted to .
 
 # Prerequisites
