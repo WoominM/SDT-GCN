@@ -1,5 +1,5 @@
 # TSA-GCN
-This repo is the official implementation for . The paper is accepted to .
+This repo is the official implementation for "Temporal Scale-wise Attention Graph Convolutional Networks for Skeleton-Based Action Recognition"
 
 # Prerequisites
 
