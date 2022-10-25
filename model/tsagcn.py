@@ -328,7 +328,7 @@ class TCN_GCN_unit(nn.Module):
         x = self.relu(x + self.residual(res))
         return x
     
-class SDTGCN(nn.Sequential):
+class TSAGCN(nn.Sequential):
     def __init__(self, block_args, A):
         super(SDTGCN, self).__init__()
         for i, [in_channels, out_channels, stride, residual, adaptive, num_frame] in enumerate(block_args):
@@ -367,7 +367,7 @@ class Model(nn.Module):
         ]
         
         self.num_layer = 3
-        self.layer = nn.ModuleList([SDTGCN(self.blockargs, A) for _ in range(self.num_layer)])
+        self.layer = nn.ModuleList([TSAGCN(self.blockargs, A) for _ in range(self.num_layer)])
         self.fc = nn.ModuleList([nn.Linear(base_channel*4, num_class) for _ in range(self.num_layer)])
         
         for fc in self.fc:
