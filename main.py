@@ -15,6 +15,10 @@ from sklearn.metrics import confusion_matrix
 import csv
 import numpy as np
 import glob
+import re
+from time import strftime, localtime
+import thop
+
 
 # torch
 import torch
@@ -40,6 +44,11 @@ def init_seed(seed):
     # torch.backends.cudnn.enabled = False
 #     torch.backends.cudnn.deterministic = True
 #     torch.backends.cudnn.benchmark = False
+
+def get_current_timestamp():
+    ct = time.time()
+    ms = int((ct - int(ct)) * 1000)
+    return '[ {},{:0>3d} ] '.format(strftime('%Y-%m-%d %H:%M:%S', localtime(ct)), ms)
 
 def import_class(import_str):
     mod_str, _sep, class_str = import_str.rpartition('.')
