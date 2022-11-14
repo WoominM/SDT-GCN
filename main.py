@@ -70,7 +70,7 @@ def str2bool(v):
 def get_parser():
     # parameter priority: command line > config > default
     parser = argparse.ArgumentParser(
-        description='Spatial Temporal Graph Convolution Network')
+        description='Temporal Scale-wise Attention Graph Convolution Network')
     parser.add_argument(
         '--work-dir',
         default='./work_dir/temp',
