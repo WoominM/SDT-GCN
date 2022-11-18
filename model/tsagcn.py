@@ -15,6 +15,7 @@ def import_class(name):
     return mod
 
 ############################################################################################################
+# Initialization
 
 def conv_branch_init(conv, branches):
     weight = conv.weight
@@ -51,6 +52,7 @@ def weights_init(m):
             m.bias.data.fill_(0)
 
 ############################################################################################################
+# Basic Layer
 
 class TemporalConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1):
@@ -112,6 +114,7 @@ class UnfoldTemporalWindows(nn.Module):
         return x
     
 ############################################################################################################ 
+# GC & TC Layer
 
 class SGC(nn.Module):
     def __init__(self, in_channels, out_channels, rel_reduction=8, mid_reduction=1):
@@ -184,6 +187,7 @@ class Temporal_Dynamic_Layer(nn.Module):
         return x   
     
 ############################################################################################################ 
+# GC & TC Module
 
 class unit_gcn(nn.Module):
     def __init__(self, in_channels, out_channels, A, coff_embedding=4, adaptive=True, residual=True):
@@ -312,6 +316,7 @@ class MultiScale_TemporalConv(nn.Module):
         return out
 
 ############################################################################################################ 
+# Block & Network
     
 class TCN_GCN_unit(nn.Module):
     def __init__(self, in_channels, out_channels, A, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2], num_frame=64):
