@@ -5,8 +5,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-leakyalpha=0.1
-#
+
+
 def import_class(name):
     components = name.split('.')
     mod = __import__(components[0])
@@ -14,6 +14,7 @@ def import_class(name):
         mod = getattr(mod, comp)
     return mod
 
+############################################################################################################
 
 def conv_branch_init(conv, branches):
     weight = conv.weight
@@ -26,7 +27,7 @@ def conv_branch_init(conv, branches):
 
 def conv_init(conv):
     if conv.weight is not None:
-        nn.init.kaiming_normal_(conv.weight, a=leakyalpha, mode='fan_out', nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(conv.weight, a=0.1, mode='fan_out', nonlinearity='leaky_relu')
     if conv.bias is not None:
         nn.init.constant_(conv.bias, 0)
 
@@ -40,7 +41,7 @@ def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
         if hasattr(m, 'weight'):
-            nn.init.kaiming_normal_(m.weight, a=leakyalpha, mode='fan_out', nonlinearity='leaky_relu')
+            nn.init.kaiming_normal_(m.weight, a=0.1, mode='fan_out', nonlinearity='leaky_relu')
         if hasattr(m, 'bias') and m.bias is not None and isinstance(m.bias, torch.Tensor):
             nn.init.constant_(m.bias, 0)
     elif classname.find('BatchNorm') != -1:
@@ -49,6 +50,7 @@ def weights_init(m):
         if hasattr(m, 'bias') and m.bias is not None:
             m.bias.data.fill_(0)
 
+############################################################################################################
 
 class TemporalConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1):
@@ -70,6 +72,23 @@ class TemporalConv(nn.Module):
         x = self.bn(x)
         return x
 
+
+class unit_tcn(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=9, stride=1, groups=1):
+        super(unit_tcn, self).__init__()
+        pad = int((kernel_size - 1) / 2)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=(kernel_size, 1), padding=(pad, 0),
+                              stride=(stride, 1), groups=groups)
+
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.LeakyReLU(0.1)
+        conv_init(self.conv)
+        bn_init(self.bn, 1)
+
+    def forward(self, x):
+        x = self.bn(self.conv(x))
+        return x
+    
     
 class UnfoldTemporalWindows(nn.Module):
     def __init__(self, window_size, window_stride, window_dilation=1, pad=True):
@@ -90,9 +109,40 @@ class UnfoldTemporalWindows(nn.Module):
         x = self.unfold(x)
         # Permute extra channels from window size to the graph dimension; -1 for number of windows
         x = x.view(N, C, self.window_size, -1, V).permute(0, 1, 3, 2, 4).contiguous()
-#         x = x.view(N, C, -1, self.window_size*V)
         return x
- 
+    
+############################################################################################################ 
+
+class SGC(nn.Module):
+    def __init__(self, in_channels, out_channels, rel_reduction=8, mid_reduction=1):
+        super(SGC, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        if in_channels == 3 or in_channels == 9:
+            self.rel_channels = 8
+            self.mid_channels = 8
+        else:
+            self.rel_channels = in_channels // rel_reduction
+            self.mid_channels = in_channels // mid_reduction
+        self.num_group = 4 if self.in_channels != 3 else 1
+        self.convQK = nn.Conv2d(self.in_channels, 2 * self.rel_channels, 1, groups=self.num_group)
+        self.convV = nn.Conv2d(self.in_channels, self.out_channels, 1, groups=self.num_group)
+        self.convc = nn.Conv2d(self.rel_channels, self.out_channels, 1, groups=self.num_group)
+        self.tanh = nn.Tanh()
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                conv_init(m)
+            elif isinstance(m, nn.BatchNorm2d):
+                bn_init(m, 1)
+
+    def forward(self, x, A=None, alpha=1):
+        q, k = self.convQK(x).mean(-2).chunk(2, 1)
+        v = self.convV(x)
+        weights = self.tanh(q.unsqueeze(-1) - k.unsqueeze(-2))
+        weights = self.convc(weights) * alpha + (A.unsqueeze(0).unsqueeze(0) if A is not None else 0)  # N,C,V,V
+        x = torch.einsum('ncuv,nctv->nctu', weights, v)
+        return x
+
     
 class Temporal_Dynamic_Layer(nn.Module):
     def __init__(self, in_channels, out_channels, ws=3, stride=1, dilation=1, num_frame=64, residual=False):
@@ -103,7 +153,9 @@ class Temporal_Dynamic_Layer(nn.Module):
         
         self.num_group = 4 if in_channels != 3 else 1
         self.ws = ws
-        self.unfold = UnfoldTemporalWindows(window_size=self.ws, window_stride=stride, window_dilation=dilation)
+        self.unfold = UnfoldTemporalWindows(window_size=self.ws, 
+                                            window_stride=stride, 
+                                            window_dilation=dilation)
         self.conv1 = nn.Conv2d(in_channels, rel_channels, 1, groups=self.num_group) 
         self.conv2 = nn.Conv2d(self.ws, self.ws**2, 1)
         self.conv3 = nn.Sequential(
@@ -115,7 +167,7 @@ class Temporal_Dynamic_Layer(nn.Module):
         ) if in_channels != out_channels or stride != 1 else (lambda x: x)
         self.bn = nn.BatchNorm2d(rel_channels)
         
-        self.relu = nn.LeakyReLU(leakyalpha)
+        self.relu = nn.LeakyReLU(0.1)
         self.tanh = nn.Tanh()
 
     def forward(self, x):
@@ -131,7 +183,62 @@ class Temporal_Dynamic_Layer(nn.Module):
         x = self.conv3(x)
         return x   
     
-                            
+############################################################################################################ 
+
+class unit_gcn(nn.Module):
+    def __init__(self, in_channels, out_channels, A, coff_embedding=4, adaptive=True, residual=True):
+        super(unit_gcn, self).__init__()
+        inter_channels = out_channels // coff_embedding
+        self.inter_c = inter_channels
+        self.out_c = out_channels
+        self.in_c = in_channels
+        self.adaptive = adaptive
+        self.num_subset = A.shape[0]
+        self.convs = nn.ModuleList()
+        for i in range(self.num_subset):
+            self.convs.append(SGC(in_channels, out_channels))
+        self.num_group = 4 if in_channels != 3 else 1
+        if residual:
+            if in_channels != out_channels:
+                self.down = nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, 1, groups=self.num_group),
+                    nn.BatchNorm2d(out_channels)
+                )
+            else:
+                self.down = lambda x: x
+        else:
+            self.down = lambda x: 0
+        if self.adaptive:
+            self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
+        else:
+            self.A = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
+        self.alpha = nn.Parameter(torch.zeros(1))
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.soft = nn.Softmax(-2)
+        self.relu = nn.LeakyReLU(0.1)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                conv_init(m)
+            elif isinstance(m, nn.BatchNorm2d):
+                bn_init(m, 1)
+        bn_init(self.bn, 1e-6)
+
+    def forward(self, x):
+        y = None
+        if self.adaptive:
+            A = self.PA
+        else:
+            A = self.A.cuda(x.get_device())
+        for i in range(self.num_subset):
+            z = self.convs[i](x, A[i], self.alpha)
+            y = z + y if y is not None else z
+        y = self.bn(y)
+        y += self.down(x)
+        y = self.relu(y)
+        return y
+    
+    
 class MultiScale_TemporalConv(nn.Module):
     def __init__(self,
                  in_channels,
@@ -170,7 +277,7 @@ class MultiScale_TemporalConv(nn.Module):
         self.branches.append(nn.Sequential(
             nn.Conv2d(in_channels, branch_channels, kernel_size=1, padding=0),
             nn.BatchNorm2d(branch_channels),
-            nn.LeakyReLU(leakyalpha),
+            nn.LeakyReLU(0.1),
             nn.MaxPool2d(kernel_size=(3,1), stride=(stride,1), padding=(1,0)),
             nn.BatchNorm2d(branch_channels) 
         ))
@@ -186,7 +293,8 @@ class MultiScale_TemporalConv(nn.Module):
         elif (in_channels == out_channels) and (stride == 1):
             self.residual = lambda x: x
         else:
-            self.residual = TemporalConv(in_channels, out_channels, kernel_size=residual_kernel_size, stride=stride)
+            self.residual = TemporalConv(in_channels, out_channels, 
+                                         kernel_size=residual_kernel_size, stride=stride)
 
         # initialize
         self.apply(weights_init)
@@ -203,107 +311,7 @@ class MultiScale_TemporalConv(nn.Module):
         out += res
         return out
 
-
-class SGC(nn.Module):
-    def __init__(self, in_channels, out_channels, rel_reduction=8, mid_reduction=1):
-        super(SGC, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        if in_channels == 3 or in_channels == 9:
-            self.rel_channels = 8
-            self.mid_channels = 8
-        else:
-            self.rel_channels = in_channels // rel_reduction
-            self.mid_channels = in_channels // mid_reduction
-        self.num_group = 4 if self.in_channels != 3 else 1
-        self.conv1 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1, groups=self.num_group)
-        self.conv2 = nn.Conv2d(self.in_channels, self.rel_channels, kernel_size=1, groups=self.num_group)
-        self.conv3 = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=1, groups=self.num_group)
-        self.conv4 = nn.Conv2d(self.rel_channels, self.out_channels, kernel_size=1, groups=self.num_group)
-        self.tanh = nn.Tanh()
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                conv_init(m)
-            elif isinstance(m, nn.BatchNorm2d):
-                bn_init(m, 1)
-
-    def forward(self, x, A=None, alpha=1):
-        q, k, v = self.conv1(x).mean(-2), self.conv2(x).mean(-2), self.conv3(x)
-        weights = self.tanh(q.unsqueeze(-1) - k.unsqueeze(-2))
-        weights = self.conv4(weights) * alpha + (A.unsqueeze(0).unsqueeze(0) if A is not None else 0)  # N,C,V,V
-        x = torch.einsum('ncuv,nctv->nctu', weights, v)
-        return x
-
-class unit_tcn(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=9, stride=1, groups=1):
-        super(unit_tcn, self).__init__()
-        pad = int((kernel_size - 1) / 2)
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=(kernel_size, 1), padding=(pad, 0),
-                              stride=(stride, 1), groups=groups)
-
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.relu = nn.LeakyReLU(leakyalpha)
-        conv_init(self.conv)
-        bn_init(self.bn, 1)
-
-    def forward(self, x):
-        x = self.bn(self.conv(x))
-        return x
-
-
-class unit_gcn(nn.Module):
-    def __init__(self, in_channels, out_channels, A, coff_embedding=4, adaptive=True, residual=True):
-        super(unit_gcn, self).__init__()
-        inter_channels = out_channels // coff_embedding
-        self.inter_c = inter_channels
-        self.out_c = out_channels
-        self.in_c = in_channels
-        self.adaptive = adaptive
-        self.num_subset = A.shape[0]
-        self.convs = nn.ModuleList()
-        for i in range(self.num_subset):
-            self.convs.append(SGC(in_channels, out_channels))
-        self.num_group = 4 if in_channels != 3 else 1
-        if residual:
-            if in_channels != out_channels:
-                self.down = nn.Sequential(
-                    nn.Conv2d(in_channels, out_channels, 1, groups=self.num_group),
-                    nn.BatchNorm2d(out_channels)
-                )
-            else:
-                self.down = lambda x: x
-        else:
-            self.down = lambda x: 0
-        if self.adaptive:
-            self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
-        else:
-            self.A = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
-        self.alpha = nn.Parameter(torch.zeros(1))
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.soft = nn.Softmax(-2)
-        self.relu = nn.LeakyReLU(leakyalpha)
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                conv_init(m)
-            elif isinstance(m, nn.BatchNorm2d):
-                bn_init(m, 1)
-        bn_init(self.bn, 1e-6)
-
-    def forward(self, x):
-        y = None
-        if self.adaptive:
-            A = self.PA
-        else:
-            A = self.A.cuda(x.get_device())
-        for i in range(self.num_subset):
-            z = self.convs[i](x, A[i], self.alpha)
-            y = z + y if y is not None else z
-        y = self.bn(y)
-        y += self.down(x)
-        y = self.relu(y)
-        return y
-    
+############################################################################################################ 
     
 class TCN_GCN_unit(nn.Module):
     def __init__(self, in_channels, out_channels, A, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2], num_frame=64):
@@ -311,7 +319,7 @@ class TCN_GCN_unit(nn.Module):
         self.gcn1 = unit_gcn(in_channels, out_channels, A, adaptive=adaptive)
         self.tcn1 = MultiScale_TemporalConv(out_channels, out_channels, kernel_size=kernel_size, stride=stride, dilations=dilations, num_frame=num_frame, residual=False)
 
-        self.relu = nn.LeakyReLU(leakyalpha)
+        self.relu = nn.LeakyReLU(0.1)
         self.num_group = 4 if in_channels != 3 else 1
         
         if not residual:
@@ -328,11 +336,18 @@ class TCN_GCN_unit(nn.Module):
         x = self.relu(x + self.residual(res))
         return x
     
+    
 class TSAGCN(nn.Sequential):
     def __init__(self, block_args, A):
         super(SDTGCN, self).__init__()
         for i, [in_channels, out_channels, stride, residual, adaptive, num_frame] in enumerate(block_args):
-            self.add_module(f'block-{i}_tcngcn', TCN_GCN_unit(in_channels, out_channels, A, stride=stride, residual=residual, adaptive=adaptive, num_frame=num_frame))  
+            self.add_module(f'block-{i}_tcngcn', TCN_GCN_unit(in_channels, 
+                                                              out_channels, 
+                                                              A, 
+                                                              stride=stride, 
+                                                              residual=residual, 
+                                                              adaptive=adaptive, 
+                                                              num_frame=num_frame))  
 
 
 class Model(nn.Module):
