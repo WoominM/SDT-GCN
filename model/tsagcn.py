@@ -139,10 +139,11 @@ class SGC(nn.Module):
                 bn_init(m, 1)
 
     def forward(self, x, A=None, alpha=1):
+        A = A.unsqueeze(0).unsqueeze(0) if A is not None else 0  # N,C,V,V
         q, k = self.convQK(x).mean(-2).chunk(2, 1)
         v = self.convV(x)
         weights = self.tanh(q.unsqueeze(-1) - k.unsqueeze(-2))
-        weights = self.convc(weights) * alpha + (A.unsqueeze(0).unsqueeze(0) if A is not None else 0)  # N,C,V,V
+        weights = self.convc(weights) * alpha + A 
         x = torch.einsum('ncuv,nctv->nctu', weights, v)
         return x
 
@@ -176,12 +177,11 @@ class Temporal_Dynamic_Layer(nn.Module):
     def forward(self, x):
         res = x
         v = self.conv1(x)
-        v = self.unfold(v)
-        x = self.unfold(x) #nctwv
+        x, v = self.unfold(x), self.unfold(v) #nctwv
         N, C, T, W, V = x.size()
         x = x.mean(1).transpose(1, 2).contiguous()
         weights = self.tanh(self.conv2(x).view(N, W, W, T, V))
-        x = torch.einsum('nwutv,nctuv->nctwv', weights, v).sum(-2)
+        x = torch.einsum('nwutv,nctuv->nctv', weights, v)
         x = self.relu(self.bn(x) + self.residual(res))
         x = self.conv3(x)
         return x   
@@ -319,10 +319,17 @@ class MultiScale_TemporalConv(nn.Module):
 # Block & Network
     
 class TCN_GCN_unit(nn.Module):
-    def __init__(self, in_channels, out_channels, A, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2], num_frame=64):
+    def __init__(self, in_channels, out_channels, A, stride=1, 
+                 residual=True, adaptive=True, kernel_size=5, dilations=[1,2], num_frame=64):
         super(TCN_GCN_unit, self).__init__()
         self.gcn1 = unit_gcn(in_channels, out_channels, A, adaptive=adaptive)
-        self.tcn1 = MultiScale_TemporalConv(out_channels, out_channels, kernel_size=kernel_size, stride=stride, dilations=dilations, num_frame=num_frame, residual=False)
+        self.tcn1 = MultiScale_TemporalConv(out_channels, 
+                                            out_channels, 
+                                            kernel_size=kernel_size, 
+                                            stride=stride, 
+                                            dilations=dilations, 
+                                            num_frame=num_frame, 
+                                            residual=False)
 
         self.relu = nn.LeakyReLU(0.1)
         self.num_group = 4 if in_channels != 3 else 1
