@@ -19,8 +19,6 @@ import re
 from time import strftime, localtime
 import thop
 
-
-# torch
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
@@ -28,13 +26,12 @@ import torch.optim as optim
 import yaml
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
-
 from torchlight import DictAction
-
 
 import resource
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
+
 
 def init_seed(seed):
     torch.cuda.manual_seed_all(seed)
